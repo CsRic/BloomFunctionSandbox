@@ -64,7 +64,6 @@ def run_CAI_int8(args):
         input_tokens[k] = v.cuda()
 
     generate_kwargs = dict(max_new_tokens=max_new_tokens, do_sample=False)
-    torch.cuda.reset_peak_memory_stats(rank)
     # warmup
     for i in range(1):
         outputs = model.generate(**input_tokens, **generate_kwargs)
@@ -75,6 +74,8 @@ def run_CAI_int8(args):
     for i in range(turn_num):
         t_generate_start = time.time()
         outputs = model.generate(**input_tokens, **generate_kwargs)
+        text = tokenizer.batch_decode(outputs)
+        print(text)
         # torch.cuda.synchronize()
         t_generate_span += time.time() - t_generate_start
     print_rank0(f"colossalai t_generate_span: {t_generate_span / turn_num}", rank)
