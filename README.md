@@ -1,4 +1,8 @@
 # BloomFunctionSandbox
+step 0:
+```
+mkdir checkpoint
+```
 step 1:
 
 ```
