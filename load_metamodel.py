@@ -8,7 +8,9 @@ model_name = "checkpoint"
 configuration = BloomConfig.from_json_file(f"{model_name}/config.json")
 with LazyInitContext() as ctx:
     model = BloomForCausalLM(configuration)
-
+'''
+quantize, set comm group for submodules
+'''
 # fill model with checkpoint
 parameters = dict(model.named_parameters())
 
@@ -26,6 +28,10 @@ for filename in filenames:
             current_tensor = parameters[full_name]
 
             slice_ = f.get_slice(name)
+            
+            '''
+            quantize, choose slice_ for tensor
+            '''
             
             tensor = slice_[:]
             if current_tensor.shape != tensor.shape:
