@@ -4,9 +4,6 @@ import os
 
 model_name = "checkpoint"
 
-configuration = BloomConfig.from_json_file(f"{model_name}/config.json")
-model = BloomForCausalLM(configuration)
-
 filenames = []
 for f in os.listdir(model_name):
     if f.endswith(".safetensors"):
