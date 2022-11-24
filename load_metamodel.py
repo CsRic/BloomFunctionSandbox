@@ -13,7 +13,6 @@ quantize, set comm group for submodules
 '''
 # fill model with checkpoint
 parameters = dict(model.named_parameters())
-
 filenames = []
 for f in os.listdir(model_name):
     if f.endswith(".safetensors"):
@@ -22,6 +21,8 @@ for f in os.listdir(model_name):
 for filename in filenames:
     with safe_open(filename, framework="pt", device=f"cuda:0") as f:
         for name in f.keys():
+            if name == 'lm_head.weight':
+                continue
             full_name = name
             module_name, param_name = full_name.rsplit(".", 1)
             module = model.get_submodule(module_name)
