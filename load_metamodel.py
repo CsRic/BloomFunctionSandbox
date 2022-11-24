@@ -11,6 +11,7 @@ with LazyInitContext() as ctx:
 '''
 quantize, set comm group for submodules
 '''
+print(model.state_dict().keys())
 # fill model with checkpoint
 parameters = dict(model.named_parameters())
 filenames = []
