@@ -14,7 +14,29 @@ from typing import Optional
 from torch.distributed.distributed_c10d import ReduceOp
 from colossalai.tensor import ColoParameter, ReplicaSpec
 
-class Linear8bitTP(torch.nn.Module):
+
+class Int8Params(torch.nn.Parameter):
+    def __new__(
+        cls,
+        data=None,
+        requires_grad=False,
+        has_fp16_weights=False,
+        SCB=None,
+    ):
+        if data is None:
+            data = torch.empty(0)
+        if SCB is None:
+            SCB = torch.empty(0)
+        cls.has_fp16_weights = has_fp16_weights
+        cls.SCB = SCB
+        return torch.Tensor._make_subclass(cls, data, requires_grad)
+
+    def __init__(self, data, SCB, requires_grad=False):
+        super(Int8Params, self).__init__
+        self.SCB = SCB
+        self.data = data if data != None else torch.empty(0)
+
+class Linear8bitTP(nn.Linear):
     def __init__(
         self,
         input_features,
@@ -23,24 +45,48 @@ class Linear8bitTP(torch.nn.Module):
         has_fp16_weights=False,
         memory_efficient_backward=False,
         threshold=6.0,
+        weight_data=None,
         index=None,
-        rank = 0,
-        world_size = 1
+        bias_data=None
     ):
-        super(Linear8bitTP, self).__init__()
-        self.rank = rank
-        self.world_size = world_size
-        self.linear8bit = bnb.nn.Linear8bitLt(input_features, output_features, bias,
-                                              has_fp16_weights, memory_efficient_backward,
-                                              threshold, index)
+        super(Linear8bitTP, self).__init__(
+            input_features, output_features, bias
+        )
+        self.state = bnb.MatmulLtState()
+        self.index = index
+        self.bias = bias_data
+        self.state.threshold = threshold
+        self.state.has_fp16_weights = has_fp16_weights
+        self.state.memory_efficient_backward = memory_efficient_backward
+        if threshold > 0.0 and not has_fp16_weights:
+            self.state.use_pool = True
+
+        self.rank = dist.get_rank()
+        self.world_size = dist.get_world_size()
+        weight = weight_data
+        if weight != None:
+            CB, _, SCB, _, _ = bnb.functional.double_quant(weight)
+        else:
+            CB, SCB = None, None
+        delattr(self, "weight")
+        setattr(self, "weight", Int8Params(data=CB, SCB=SCB))
+        self.weight.data = self.weight.data.to("cpu")
 
     def forward(self, x):
-        out = self.linear8bit(x)
+        self.state.is_training = self.training
+
+        if self.bias is not None and self.bias.dtype != torch.float16:
+            self.bias.data = self.bias.data.half()
+
+        self.state.CB = self.weight.data
+        self.state.SCB = self.weight.SCB
+        out = bnb.matmul(x, self.weight, bias=self.bias, state=self.state)
         tensor_list = [torch.zeros_like(out) for _ in range(self.world_size)]
+        dist.all_gather(tensor_list, out)
         out = torch.cat(tensor_list, dim=2)
         del tensor_list
         del self.state.CxB
-        
+
         return out
 
 class LinearTP(torch.nn.Linear):
@@ -163,7 +209,7 @@ def load_bloom_for_rank(path : str, rank = 0, world_size = 1, sharding = "tp", d
         model = BloomForCausalLM(configuration)
     # replace layer
     replace_8bit_linear_tp(model)
-    parameters = dict(model.named_parameters())
+    
     filenames = []
     for f in os.listdir(path):
         if f.endswith(".safetensors"):
@@ -177,12 +223,14 @@ def load_bloom_for_rank(path : str, rank = 0, world_size = 1, sharding = "tp", d
                 module_name, param_name = full_name.rsplit(".", 1)
                 module = model.get_submodule(module_name)
                 tensor = f.get_tensor(name).data.contiguous().half()
+                
                 if isinstance(module, Linear8bitTP):
                     if "weight" in param_name:
                         weight = tensor
                         CB, _, SCB, _, _ = bnb.functional.double_quant(weight)
-                        module._parameters[param_name] = bnb.nn.Int8Params(data=list(CB.chunk(world_size, dim=0))[rank].clone().detach(),
+                        module._parameters[param_name] = Int8Params(data=list(CB.chunk(world_size, dim=0))[rank].clone().detach(),
                                                                    SCB=list(SCB.chunk(world_size, dim=0))[rank].clone().detach())
+                        
                     elif "bias" in param_name:
                         bias = tensor
                         module._parameters[param_name] = list(bias.chunk(world_size, dim=0))[rank].clone().detach()

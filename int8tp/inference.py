@@ -92,6 +92,7 @@ if __name__ == '__main__':
             print("colossalai int8")
             run_CAI_int8(args)
     elif args.backend == "torch":
+        print("torch")
         # run_torch(args)
     elif args.backend == "accelerate":
         print("accelerate")
