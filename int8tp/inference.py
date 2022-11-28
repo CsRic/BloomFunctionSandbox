@@ -42,12 +42,13 @@ def run_CAI_int8(args):
     #                             n_head=args.n_head,  # 8
     #                             )
     model_path = args.model_path
+    token_path = "/data2/users/lczht/bloom-560m"
     colossalai.launch_from_torch(config={})
     world_size = dist.get_world_size()
     rank = dist.get_rank()
     input_sentence = INPUT_SENTENCE
     max_new_tokens = args.max_new_tokens
-    tokenizer = BloomTokenizerFast.from_pretrained(model_path)
+    tokenizer = BloomTokenizerFast.from_pretrained(token_path)
     from utils import load_bloom_for_rank
     model = load_bloom_for_rank(model_path, rank = rank, world_size=world_size)
 
@@ -74,8 +75,8 @@ def run_CAI_int8(args):
     for i in range(turn_num):
         t_generate_start = time.time()
         outputs = model.generate(**input_tokens, **generate_kwargs)
-        text = tokenizer.batch_decode(outputs)
-        print(text)
+        # text = tokenizer.batch_decode(outputs)
+        # print(text)
         # torch.cuda.synchronize()
         t_generate_span += time.time() - t_generate_start
     print_rank0(f"colossalai t_generate_span: {t_generate_span / turn_num}", rank)

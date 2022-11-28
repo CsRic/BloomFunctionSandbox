@@ -193,6 +193,7 @@ def save_full_model(model, path: str = "checkpoint", stride=12, ):
     for i in range(num_files):
         batch = dict(islice(model.state_dict().items(), i * stride, (i + 1) * stride))
         save_file(batch, os.path.join(path, f"part_{i}.safetensors"))
+        print(f"{i + 1} / {num_files}")
 
 def save_bloom_from_config(configuration : BloomConfig, path = "checkpoint", stride = 12):
     model = BloomForCausalLM(configuration)
@@ -205,7 +206,7 @@ def load_bloom_for_rank(path : str, rank = 0, world_size = 1, sharding = "tp", d
     if dtype != "int8":
         raise NotImplementedError
     configuration = BloomConfig.from_json_file(f"{path}/config.json")
-    with LazyInitContext() as ctx:
+    with LazyInitContext(to_meta=True) as ctx:
         model = BloomForCausalLM(configuration)
     # replace layer
     replace_8bit_linear_tp(model)
@@ -215,21 +216,21 @@ def load_bloom_for_rank(path : str, rank = 0, world_size = 1, sharding = "tp", d
         if f.endswith(".safetensors"):
             filenames.append(os.path.join(path, f))
     for filename in filenames:
-        with safe_open(filename, framework="pt", device=rank) as f:
+        with safe_open(filename, framework="pt", device="cpu") as f:
             for name in f.keys():
                 if name == 'lm_head.weight':
                     continue
                 full_name = name
                 module_name, param_name = full_name.rsplit(".", 1)
                 module = model.get_submodule(module_name)
-                tensor = f.get_tensor(name).data.contiguous().half()
+                tensor = f.get_tensor(name).data.contiguous().half().to(rank)
                 
                 if isinstance(module, Linear8bitTP):
                     if "weight" in param_name:
                         weight = tensor
                         CB, _, SCB, _, _ = bnb.functional.double_quant(weight)
                         module._parameters[param_name] = Int8Params(data=list(CB.chunk(world_size, dim=0))[rank].clone().detach(),
-                                                                   SCB=list(SCB.chunk(world_size, dim=0))[rank].clone().detach())
+                                                                    SCB=list(SCB.chunk(world_size, dim=0))[rank].clone().detach())
                         
                     elif "bias" in param_name:
                         bias = tensor

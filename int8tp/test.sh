@@ -17,7 +17,7 @@ CUDA_VISIBLE_DEVICES_set_n_least_memory_usage() {
 
 
 export GPU_NUM=4
-export DATASET="/home/lccsr/data2/files_2022/bloom/sandbox/BloomFunctionSandbox/bloom560m"
+export DATASET="/home/lccsr/data2/files_2022/bloom/sandbox/BloomFunctionSandbox/bloom40B"
                                             # /data2/users/lczht/bloom-560m 
                                             # /data2/users/lccsr/bloom3b/data 
                                             # /data2/users/lccsr/bloom1b7/data
